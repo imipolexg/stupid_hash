@@ -69,7 +69,6 @@ impl<T> Hash<T> {
     fn remove(&mut self, name: &str) -> Option<T> {
         let h = Hash::<T>::hash(name);
         let mut entries = &mut self.0[h];
-        let mut j: Option<usize> = None;
 
         for i in 0..entries.len() {
             if entries[i].name == name {
