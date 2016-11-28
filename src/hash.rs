@@ -65,16 +65,30 @@ impl<T> Hash<T> {
             value: value,
         });
     }
+
+    fn remove(&mut self, name: &str) -> Option<T> {
+        let h = Hash::<T>::hash(name);
+        let mut entries = &mut self.0[h];
+        let mut j: Option<usize> = None;
+
+        for i in 0..entries.len() {
+            if entries[i].name == name {
+                return Some(entries.remove(i).value);
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::Hash;
-    use super::NameVal;
 
     #[test]
     fn basics() {
         let mut hashtab = Hash::new();
+        assert_eq!(hashtab.lookup("abc"), None);
         hashtab.upsert("abc", 64);
         hashtab.upsert("abcdefghijklmnopq", 128);
         assert_eq!(hashtab.lookup("abc"), Some(&64));
@@ -82,6 +96,8 @@ mod test {
         assert_eq!(hashtab.lookup("abcdefghijklmnopq"), Some(&128));
         hashtab.upsert("abc", 256);
         assert_eq!(hashtab.lookup("abc"), Some(&256));
+        hashtab.remove("abc");
+        assert_eq!(hashtab.lookup("abc"), None);
         assert_eq!(hashtab.lookup("abcd"), None);
     }
 }
