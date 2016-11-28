@@ -1,0 +1,6 @@
+[package]
+name = "stupid_hash"
+version = "0.1.0"
+authors = ["Zachary Hamm <hamm.zachary@gmail.com>"]
+
+[dependencies]
