@@ -99,5 +99,10 @@ mod test {
         hashtab.remove("abc");
         assert_eq!(hashtab.lookup("abc"), None);
         assert_eq!(hashtab.lookup("abcd"), None);
+        let nippon = "私はガラスを食べられます。それは私を傷つけません。";
+        hashtab.upsert(nippon, 31337);
+        assert_eq!(hashtab.lookup(nippon), Some(&31337));
+        hashtab.remove(nippon);
+        assert_eq!(hashtab.lookup(nippon), None);
     }
 }
