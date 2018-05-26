@@ -1,25 +1,41 @@
-const NHASH: usize = 4096;
+const NHASH: usize = 1024;
 const MULTIPLIER: usize = 31;
 
-pub struct NameVal<T> {
+#[derive(Clone, Debug)]
+pub struct NameVal<T: Clone> {
     name: String,
     value: T,
 }
 
-pub struct Hash<T>(Vec<Vec<NameVal<T>>>);
+pub struct Hash<T: Clone> {
+    table: Vec<Vec<NameVal<T>>>,
+    bits: usize,
+    split_bucket: usize,
+}
 
-impl<T> Hash<T> {
+impl<T> Hash<T>
+where
+    T: Clone,
+{
     fn new() -> Self {
         let mut hash_vec = Vec::with_capacity(NHASH);
 
         for i in 0..NHASH {
-            hash_vec.push(Vec::<NameVal<T>>::new());
+            hash_vec.push(Vec::new());
         }
 
-        Hash(hash_vec)
+        Hash {
+            table: hash_vec,
+            bits: 10, // log_2(1024)
+            split_bucket: 0,
+        }
     }
 
-    fn hash(name: &str) -> usize {
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn hash(&self, name: &str) -> usize {
         let mut h: usize = 0;
 
         for p in name.bytes() {
@@ -29,12 +45,18 @@ impl<T> Hash<T> {
             // this magic instead.
             h = h.wrapping_mul(MULTIPLIER).wrapping_add(p);
         }
-        h % NHASH
+
+        let m = h & ((1 << self.bits) - 1);
+        if m < self.len() {
+            m
+        } else {
+            m ^ (1 << (self.bits - 1))
+        }
     }
 
     fn lookup(&self, name: &str) -> Option<&T> {
-        let h = Hash::<T>::hash(name);
-        let entries = &self.0[h];
+        let h = self.hash(name);
+        let entries = &self.table[h];
 
         match entries.len() {
             0 => None,
@@ -49,26 +71,56 @@ impl<T> Hash<T> {
         }
     }
 
-    fn upsert(&mut self, name: &str, value: T) {
-        let h = Hash::<T>::hash(name);
-        let mut entries = &mut self.0[h];
+    // Returns true if the insert was a new key,
+    // False if we overwrote a key
+    fn upsert(&mut self, name: &str, value: T) -> bool {
+        let h = self.hash(name);
+        let entry_count;
 
-        for entry in entries.iter_mut() {
-            if entry.name == name {
-                entry.value = value;
-                return;
+        {
+            let entries = &mut self.table[h];
+            entry_count = entries.len();
+
+            for entry in entries.iter_mut() {
+                if entry.name == name {
+                    entry.value = value;
+                    return false;
+                }
             }
+
+            entries.push(NameVal {
+                name: name.to_string(),
+                value: value,
+            });
         }
 
-        entries.push(NameVal {
-            name: name.to_string(),
-            value: value,
-        });
+        if entry_count + 1 > (1 << self.bits) {
+            self.split();
+        }
+
+        true
+    }
+
+    fn split(&mut self) {
+        let orig_bucket = self.table[self.split_bucket].to_vec(); 
+        self.table[self.split_bucket] = Vec::<NameVal<T>>::new(); 
+        self.table.push(Vec::<NameVal<T>>::new());
+
+        if self.len() > ((1 << self.bits) - 1) {
+            self.bits += 1;
+            self.split_bucket = 0;
+        } else {
+            self.split_bucket += 1;
+        }
+
+        for entry in orig_bucket.iter() {
+            self.upsert(&entry.name, entry.value.clone());
+        }
     }
 
     fn remove(&mut self, name: &str) -> Option<T> {
-        let h = Hash::<T>::hash(name);
-        let mut entries = &mut self.0[h];
+        let h = self.hash(name);
+        let entries = &mut self.table[h];
 
         for i in 0..entries.len() {
             if entries[i].name == name {
@@ -80,28 +132,45 @@ impl<T> Hash<T> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::Hash;
+#[test]
+fn basics() {
+    let mut hashtab = Hash::new();
+    assert_eq!(hashtab.lookup("abc"), None);
+    hashtab.upsert("abc", 64);
+    hashtab.upsert("abcdefghijklmnopq", 128);
+    assert_eq!(hashtab.lookup("abc"), Some(&64));
+    assert_eq!(hashtab.lookup("abc"), Some(&64));
+    assert_eq!(hashtab.lookup("abcdefghijklmnopq"), Some(&128));
+    hashtab.upsert("abc", 256);
+    assert_eq!(hashtab.lookup("abc"), Some(&256));
+    hashtab.remove("abc");
+    assert_eq!(hashtab.lookup("abc"), None);
+    assert_eq!(hashtab.lookup("abcd"), None);
+    let nippon = "私はガラスを食べられます。それは私を傷つけません。";
+    hashtab.upsert(nippon, 31337);
+    assert_eq!(hashtab.lookup(nippon), Some(&31337));
+    hashtab.remove(nippon);
+    assert_eq!(hashtab.lookup(nippon), None);
+}
 
-    #[test]
-    fn basics() {
-        let mut hashtab = Hash::new();
-        assert_eq!(hashtab.lookup("abc"), None);
-        hashtab.upsert("abc", 64);
-        hashtab.upsert("abcdefghijklmnopq", 128);
-        assert_eq!(hashtab.lookup("abc"), Some(&64));
-        assert_eq!(hashtab.lookup("abc"), Some(&64));
-        assert_eq!(hashtab.lookup("abcdefghijklmnopq"), Some(&128));
-        hashtab.upsert("abc", 256);
-        assert_eq!(hashtab.lookup("abc"), Some(&256));
-        hashtab.remove("abc");
-        assert_eq!(hashtab.lookup("abc"), None);
-        assert_eq!(hashtab.lookup("abcd"), None);
-        let nippon = "私はガラスを食べられます。それは私を傷つけません。";
-        hashtab.upsert(nippon, 31337);
-        assert_eq!(hashtab.lookup(nippon), Some(&31337));
-        hashtab.remove(nippon);
-        assert_eq!(hashtab.lookup(nippon), None);
+#[test]
+fn test_split() {
+    let mut hashtab = Hash::new();
+
+    let n_entries = 4096 * 65536;
+
+    for i in 0..n_entries {
+        println!("{}", i);
+        let k = i.to_string();
+        hashtab.upsert(&k, i);
+    }
+
+    for i in 0..n_entries {
+        let k = i.to_string();
+        let val = hashtab.lookup(&k);
+
+        assert!(val.is_some());
+        let unwrapped = val.unwrap();
+        assert_eq!(*unwrapped, i);
     }
 }
