@@ -1,5 +1,7 @@
-const NHASH: usize = 1024;
+const NHASH: usize = 32;
 const MULTIPLIER: usize = 31;
+
+use std::mem;
 
 #[derive(Clone, Debug)]
 pub struct NameVal<T: Clone> {
@@ -13,25 +15,35 @@ pub struct Hash<T: Clone> {
     split_bucket: usize,
 }
 
+pub fn bit_string(bits: usize) -> String {
+    let mut bstr: String = "".to_string();
+    for i in 0..(mem::size_of::<usize>()*8) {
+        let mask = 1 << i;
+        bstr.push(if mask & bits == 0 { '0' } else { '1' });
+    }
+
+    bstr.chars().rev().collect()
+}
+
 impl<T> Hash<T>
 where
     T: Clone,
 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut hash_vec = Vec::with_capacity(NHASH);
 
-        for i in 0..NHASH {
+        for _i in 0..NHASH {
             hash_vec.push(Vec::new());
         }
 
         Hash {
             table: hash_vec,
-            bits: 10, // log_2(1024)
+            bits: 5, // log_2(32)
             split_bucket: 0,
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.table.len()
     }
 
@@ -40,9 +52,9 @@ where
 
         for p in name.bytes() {
             let p = p as usize;
-            // Instead of silently wrapping (like most C implementations do, even if that is
-            // strictly undefined), rust panics if we overflow an integer value. So we need to use
-            // this magic instead.
+            // Instead of silently wrapping (like most C implementations do,
+            // even if that is strictly undefined), rust panics if we overflow
+            // an integer value. So we need to use this magic instead.
             h = h.wrapping_mul(MULTIPLIER).wrapping_add(p);
         }
 
@@ -54,7 +66,7 @@ where
         }
     }
 
-    fn lookup(&self, name: &str) -> Option<&T> {
+    pub fn lookup(&self, name: &str) -> Option<&T> {
         let h = self.hash(name);
         let entries = &self.table[h];
 
@@ -73,7 +85,7 @@ where
 
     // Returns true if the insert was a new key,
     // False if we overwrote a key
-    fn upsert(&mut self, name: &str, value: T) -> bool {
+    pub fn upsert(&mut self, name: &str, value: T) -> bool {
         let h = self.hash(name);
         let entry_count;
 
@@ -118,7 +130,7 @@ where
         }
     }
 
-    fn remove(&mut self, name: &str) -> Option<T> {
+    pub fn remove(&mut self, name: &str) -> Option<T> {
         let h = self.hash(name);
         let entries = &mut self.table[h];
 
@@ -151,16 +163,16 @@ fn basics() {
     assert_eq!(hashtab.lookup(nippon), Some(&31337));
     hashtab.remove(nippon);
     assert_eq!(hashtab.lookup(nippon), None);
+    println!("done");
 }
 
 #[test]
 fn test_split() {
     let mut hashtab = Hash::new();
 
-    let n_entries = 4096 * 65536;
+    let n_entries = 8192;
 
     for i in 0..n_entries {
-        println!("{}", i);
         let k = i.to_string();
         hashtab.upsert(&k, i);
     }
